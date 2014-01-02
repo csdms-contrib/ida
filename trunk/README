@@ -1,0 +1,132 @@
+IDA: Implicit Drainage Area
+2013/12/19
+Alan Richardson, Chris Hill, Taylor Perron
+
+This code implements the IDA and hybrid IDA algorithms to solve for drainage
+area in parallel. It currently only accepts D8 flow directions, although it
+could be extended to include other flow direction schemes.
+
+Note that this is a research code designed to demonstrate the IDA method. It is
+not intended for production use. In particular, it is likely that performance
+and memory usage could be improved.
+
+The code assigns unit area to every cell. This can be changed by modifying
+the 'b' vector. Despite having integer values in the current implementation,
+the output is written in floating point format.
+
+
+Compiling
+---------
+PETSc must be installed in order to compile this code, and the PETSC_ARCH
+and PETSC_DIR environmental variables must be set, as described in the PETSc
+installation instructions. The interfaces of PETSc functions change quite
+regularly, so it is important to have the right version installed. This code
+was tested with PETSc 3.4.3. If you will be processing very large landscapes
+then you may need to configure PETSc with the --with-64-bit-indices option. If
+you wish to use one of the HYPRE preconditioners (such as Euclid), then you
+must use the --download-hypre option. You should configure PETSc with the
+--with-debugging=0 option for best performance. The code also requires an MPI
+library, such as Open MPI.
+
+The code uses features of C99, so a compatible compiler is required.
+
+To compile, run 'make' in the top directory. This will create the executable
+bin/ida under the top directory.
+
+
+Running
+-------
+There are a number of required and optional parameters when running the code.
+
+Required parameters:
+  -in: Path to input flow directions file (8-bit int)
+  -N: Number of landscape rows to be computed
+  -M: Number of landscape columns to be computed
+
+Optional parameters:
+  -out: Path to output drainage area file (64-bit float). If this parameter
+    is not used, no output is saved to disk.
+  -true: Path to true drainage area file for comparison (64-bit float). The
+    difference between the values in this file and the values computed by IDA
+    will be reported.
+  -initguess: Path to initial guess of drainage area file (64-bit float)
+  -npy: Number of processes to divide rows over
+  -npx: Number of processes to divide columns over
+  -fullN: Number of rows in input landscape. Default: N
+  -fullM: Number of columns in input landscape. Default: M
+  -firstrow: First row of input landscape to compute. Default: 0
+  -firstcol: First column of input landscape to compute. Default: 0
+  -initguesscalc: Locally calculate drainage area on each process with
+    serial algorithm and use as an initial guess. This cannot be mixed with
+    -initguess.
+  -onlycrossborder: Use hybrid IDA algorithm (recommended). This cannot be
+    mixed with -initguesscalc or -initguess.
+
+Selected optional PETSc parameters:
+  -ksp_type: solver (e.g. richardson)
+  -pc_type: preconditioner (e.g. asm). If you with to use one of HYPRE's
+    preconditioners (such as Euclid), then you should use hypre as the
+    preconditioner and additionally use the -pc_hypre_type parameter.
+  -log_summary: Print information (including performance data) about run.
+
+After running, a short description of the outcome will be displayed, including
+a measure of the error (either the norm of the residual if the true answer
+was not provided, otherwise the norm and max of the difference between the true
+and computed answer), and the number of iterations of the solver.
+
+The runtime of IDA is also displayed. The time provided includes various tasks
+which are sometimes not included in runtimes used for comparison, such as
+memory allocation and deallocation, and, in the case when an initial guess file
+is provided, file I/O.
+
+If you wish to keep the output drainage area, don't forget to specify the -out
+option or the output will be discarded!
+
+
+File formats
+------------
+All input and output files are raw binary data.
+
+Input flow directions:
+  8 bit unsigned integers
+
+  The numbers corresponding to each of the 9 possible flow directions are
+  shown below:
+
+  32  64 128
+
+  16  0   1
+
+  8   4   2
+
+  So a cell with the value '1' means that the flow in that cell goes to the
+  East, while a value of '32' means that the cell's flow goes to the
+  North West. The value '0' implies that the cell is a sink and flow does not
+  leave it.
+
+Output drainage area, true drainage area, and initial guess:
+  64 bit float ('double')
+
+  Row major order is used.
+  The drainage area of cells with no drainage to or from them, such as ocean
+  cells, will be the area of the cell itself (1.0, if all cells are given
+  unit area).
+
+
+Example
+-------
+As an example of running IDA, and a test to ensure that it is running
+correctly, a small project is provided. Unpack it using
+tar -xjf example.tar.bz2
+
+Files: 
+  dir.bin: flow directions for a 1000 x 1000 cell landscape
+  true.bin: the correct answer, for comparison
+  run.sh: a Bash script to run the example. The script must be modified to 
+    specify the path to the IDA executable.
+
+Running:
+  Make the Bash script executable with the command chmod +x run.sh
+  Run the Bash script with ./run.sh
+  It will run IDA several times with different options, and may take some time
+  Depending on your configuration of PETSc, some of the runs may fail
