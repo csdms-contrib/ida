@@ -213,7 +213,7 @@ main (int argc, char **argv)
     ierr = hybrid_ida (M, N, m, n, mg, localfirstcol_l, localfirstrow_l,
       localfirstcol_g, localfirstrow_g,
       init_guess_file_flg, initguesscalc, initguessfilename, doublefiletype, W,
-      x, rank, &ksp, da);
+      x, rank, &ksp);
   }
   else
   {

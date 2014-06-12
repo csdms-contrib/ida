@@ -16,11 +16,12 @@
 /* Forward function declarations */
 static PetscErrorCode
 determine_cross_border_flow (const PetscInt M, const PetscInt N,
-    const PetscInt m, const PetscInt n,
+    const PetscInt m, const PetscInt n, const PetscInt mg,
     const PetscInt localfirstcol_g, const PetscInt localfirstrow_g,
+    const PetscInt localfirstcol_l, const PetscInt localfirstrow_l,
     const unsigned char * restrict const W,
     PetscInt * num_send_across_border, PetscInt * send_across_border_idx,
-    Vec rcv_across_border, const AO dmao);
+    Vec rcv_across_border);
 
 
   PetscErrorCode
@@ -31,7 +32,7 @@ hybrid_ida (const PetscInt M, const PetscInt N,
     const PetscBool init_guess_file_flg, const PetscBool initguesscalc,
     const char * restrict const initguessfilename,
     const MPI_Datatype doublefiletype, const unsigned char * restrict const W,
-    Vec x, const int rank, KSP * ksp, const DM da)
+    Vec x, const int rank, KSP * ksp)
 {
 
   Mat Ar;
@@ -47,17 +48,18 @@ hybrid_ida (const PetscInt M, const PetscInt N,
   PetscInt num_br_vals;
   const PetscInt num_border_cells = 2 * m + 2 * (n - 2);
   PetscInt i;
+  PetscInt global_idx;
+  PetscInt local_row_l;
+  PetscInt local_col_l;
   PetscInt * send_across_border_idx;
   PetscInt * only_send_across_border_idx;
   PetscInt * rcv_across_border_idx;
   PetscInt * br_vals_idx;
   PetscInt * aoordering;
-  PetscInt * dmordering;
   PetscScalar * only_send_across_border;
   PetscScalar * br_vals;
   PetscScalar *xptr;
   AO ao;
-  AO dmao;
 
   /* Allocate memory to store bookkeeping vectors related to only using
    * the linear solver to set cells that cross borders */
@@ -71,11 +73,7 @@ hybrid_ida (const PetscInt M, const PetscInt N,
    * need to be stored. Changing this would require also changing the section
    * in determine_cross_border_flow where the values are set and
    * setInitialGuess_crossborder, where they are used. */
-  ierr = VecCreate (PETSC_COMM_WORLD, &rcv_across_border);
-  CHKERRQ (ierr);
-  ierr = VecSetSizes (rcv_across_border, m * n, PETSC_DECIDE);
-  CHKERRQ (ierr);
-  ierr = VecSetFromOptions (rcv_across_border);
+  ierr = VecDuplicate (x, &rcv_across_border);
   CHKERRQ (ierr);
   ierr = VecSet (rcv_across_border, 0.0);
   CHKERRQ (ierr);
@@ -106,15 +104,11 @@ hybrid_ida (const PetscInt M, const PetscInt N,
     SETERRQ (PETSC_COMM_WORLD, 55,
         "Error allocating only_send_across_border");
 
-
-  /* Get the mapping between the DMDA indices and PETSCs's indices */
-  ierr = DMDAGetAO (da, &dmao);
-
   /* Determine cells that send and receive across process borders */
-  ierr = determine_cross_border_flow (M, N, m, n, 
-      localfirstcol_g, localfirstrow_g, W,
+  ierr = determine_cross_border_flow (M, N, m, n, mg, 
+      localfirstcol_g, localfirstrow_g, localfirstcol_l, localfirstrow_l, W,
       &num_send_across_border, send_across_border_idx,
-      rcv_across_border, dmao);
+      rcv_across_border);
   CHKERRQ (ierr);
 
   /* If using an initial guess (input file, or local solution), set x vector
@@ -223,17 +217,20 @@ hybrid_ida (const PetscInt M, const PetscInt N,
   {
     ierr = VecGetArray (xr, &xptr);
     CHKERRQ (ierr);
-    dmordering = malloc (sizeof (PetscInt) * num_rcv_across_border);
-    memcpy (dmordering, aoordering + num_only_send_across_border,
-        num_rcv_across_border * sizeof (PetscInt));
-    ierr = AOApplicationToPetsc (dmao, num_rcv_across_border, dmordering);
-    CHKERRQ (ierr);
-    ierr = VecSetValues (x, num_rcv_across_border, 
-        dmordering, xptr+num_only_send_across_border, INSERT_VALUES);
+    for (i=0;i<num_rcv_across_border;i++)
+    {
+      global_idx = rcv_across_border_idx [i];
+      local_row_l = global_idx / M - localfirstrow_g;
+      local_col_l = global_idx % M - localfirstcol_g;
+      /* Local coordinates with ghost cells */
+      rcv_across_border_idx [i] = (local_row_l + localfirstrow_l) * mg + 
+        (local_col_l + localfirstcol_l);
+    }
+    ierr = VecSetValuesLocal (x, num_rcv_across_border, 
+        rcv_across_border_idx, xptr+num_only_send_across_border, INSERT_VALUES);
     CHKERRQ (ierr);
     ierr = VecRestoreArray (xr, &xptr);
     CHKERRQ (ierr);
-    (void) free (dmordering);
   }
 
   /* Free memory */
@@ -260,11 +257,12 @@ hybrid_ida (const PetscInt M, const PetscInt N,
  * processor domain border */
   static PetscErrorCode
 determine_cross_border_flow (const PetscInt M, const PetscInt N,
-    const PetscInt m, const PetscInt n,
+    const PetscInt m, const PetscInt n, const PetscInt mg,
     const PetscInt localfirstcol_g, const PetscInt localfirstrow_g,
+    const PetscInt localfirstcol_l, const PetscInt localfirstrow_l,
     const unsigned char * restrict const W,
     PetscInt * num_send_across_border, PetscInt * send_across_border_idx,
-    Vec rcv_across_border, const AO dmao)
+    Vec rcv_across_border)
 {
   PetscInt w_idx, row, col;
   PetscInt dest_row, dest_col;
@@ -353,7 +351,7 @@ determine_cross_border_flow (const PetscInt M, const PetscInt N,
           send_across_border_idx[*num_send_across_border]=
             (row + localfirstrow_g) * M + (col + localfirstcol_g);
           dest_across_border_idx[*num_send_across_border]=
-            global_dest_row * M + global_dest_col;
+            (dest_row + localfirstrow_l) * mg + (dest_col + localfirstcol_l);
           (*num_send_across_border)++;
         }
       }
@@ -365,10 +363,6 @@ determine_cross_border_flow (const PetscInt M, const PetscInt N,
   /* Insert into rcv_across_border vector. This is used in
    * setInitialGuess_crossborder to determine which cells receive flow
    * from across borders. */
-  ierr = AOApplicationToPetsc (dmao, *num_send_across_border,
-      dest_across_border_idx);
-  CHKERRQ (ierr);
-
   ones = malloc (sizeof (PetscScalar) * *num_send_across_border);
   if (ones == NULL)
     SETERRQ (PETSC_COMM_WORLD, 55, "Error allocating ones");
@@ -377,7 +371,7 @@ determine_cross_border_flow (const PetscInt M, const PetscInt N,
     ones [i] = one;
   }
 
-  VecSetValues (rcv_across_border, *num_send_across_border, 
+  VecSetValuesLocal (rcv_across_border, *num_send_across_border, 
       dest_across_border_idx, ones, ADD_VALUES);
   ierr = VecAssemblyBegin (rcv_across_border);
   CHKERRQ (ierr);

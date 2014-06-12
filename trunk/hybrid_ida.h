@@ -6,4 +6,4 @@ hybrid_ida (const PetscInt M, const PetscInt N,
     const PetscBool init_guess_file_flg, const PetscBool initguesscalc,
     const char * restrict const initguessfilename,
     const MPI_Datatype doublefiletype, const unsigned char * restrict const W,
-    Vec x, const int rank, KSP * ksp, const DM da);
+    Vec x, const int rank, KSP * ksp);
