@@ -25,8 +25,10 @@ was tested with PETSc 3.4.3. If you will be processing very large landscapes
 then you may need to configure PETSc with the --with-64-bit-indices option. If
 you wish to use one of the HYPRE preconditioners (such as Euclid), then you
 must use the --download-hypre option. You should configure PETSc with the
---with-debugging=0 option for best performance. The code also requires an MPI
-library, such as Open MPI.
+--with-debugging=0 option for best performance. You may also want to pass
+additional optimization options for your compiler, such as 
+COPTFLAGS="-O3 -march=native" FOPTFLAGS="-O3 -march=native" (for GCC).
+The code also requires an MPI library, such as Open MPI.
 
 The code uses features of C99, so a compatible compiler is required.
 
